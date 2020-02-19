@@ -104,13 +104,13 @@ function( object, ...){
 #' @export
 #' @docType methods
 #' @rdname getContrast-method
-getContrast = function( exprObj, formula, data, coefficient){ 
+getContrast = function( exprObj, formula, data, coefficient, L){ 
 
 	if( length(coefficient) > 2){
 		stop("Length of coefficient array limited to 2")
 	}
 
-	L = .getContrastInit( exprObj, formula, data)
+  if (missing(L)) L = .getContrastInit( exprObj, formula, data)
 
 	# assign coefficient coding
 	if( any(!coefficient %in% names(L)) ){
@@ -136,9 +136,12 @@ getContrast = function( exprObj, formula, data, coefficient){
 #' @return
 #'  Matrix testing each variable one at a time.  Contrasts are on rows
 #'
-.getAllUniContrasts = function( exprObj, formula, data){ 
+.getAllUniContrasts = function( exprObj, formula, data, Linit = NULL, return.Linit = FALSE){ 
 
-	Linit = .getContrastInit( exprObj, formula, data)
+  if (is.null(Linit))
+	  Linit = .getContrastInit( exprObj, formula, data)
+  
+  if (return.Linit) return(Linit)
 
 	Lall = lapply( seq_len(length(Linit)), function(i){
 		Linit[i] = 1
@@ -194,8 +197,9 @@ getContrast = function( exprObj, formula, data, coefficient){
 	# if less run lmer() in the loop
 	# else run lm()
 	gene14643 = nextElem(exprIter(exprObj, weightsMatrix, useWeights))
-	possibleError <- tryCatch( lmer( eval(parse(text=form)), data=data,control=control ), error = function(e) e)
-
+	# possibleError <- tryCatch( lmer( eval(parse(text=form)), data=data,control=control ), error = function(e) e)
+	possibleError <- FALSE
+	
 	# detect error when variable in formula does not exist
 	# *** This error has already been found at this point
 	# if( inherits(possibleError, "error") ){
@@ -221,7 +225,7 @@ getContrast = function( exprObj, formula, data, coefficient){
 			stop(paste(possibleError$message, "\n\nSuggestion: rescale fixed effect variables.\nThis will not change the variance fractions or p-values."))
 		} 		
 
-		fit = lmer( eval(parse(text=form)), data=data,control=control, REML=TRUE )
+		fit = lme4::lmer( eval(parse(text=form)), data=data,control=control, REML=TRUE )
 		
 		L = rep(0, length(fixef(fit)))
 		names(L) = names(fixef(fit))
@@ -397,7 +401,7 @@ getContrast = function( exprObj, formula, data, coefficient){
 #' @importFrom pbkrtest get_SigmaG
 #' @importFrom BiocParallel bpiterate bpparam
 # @importFrom lmerTest lmer
-dream <- function( exprObj, formula, data, L, ddf = c("Satterthwaite", "Kenward-Roger"), REML=TRUE, useWeights=TRUE, weightsMatrix=NULL, control = lme4::lmerControl(calc.derivs=FALSE, check.rankX="stop.deficient" ),suppressWarnings=FALSE, quiet=FALSE, BPPARAM=bpparam(), computeResiduals=FALSE, ...){ 
+dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resList = FALSE, return.fitInit = FALSE, ddf = c("Satterthwaite", "Kenward-Roger"), REML=TRUE, useWeights=TRUE, weightsMatrix=NULL, control = lme4::lmerControl(calc.derivs=FALSE, check.rankX="stop.deficient" ),suppressWarnings=FALSE, quiet=FALSE, BPPARAM=bpparam(), computeResiduals=FALSE, ...){ 
 
 	exprObjInit = exprObj
 	
@@ -461,7 +465,7 @@ dream <- function( exprObj, formula, data, L, ddf = c("Satterthwaite", "Kenward-
 	univariateContrasts = FALSE
 	if( missing(L) ){
 		# all univariate contrasts
-		L = .getAllUniContrasts( exprObj, formula, data)
+		L = .getAllUniContrasts( exprObj, formula, data, Linit = Linit)
 		univariateContrasts = TRUE
 	}else{
 		# format contrasts 
@@ -485,7 +489,7 @@ dream <- function( exprObj, formula, data, L, ddf = c("Satterthwaite", "Kenward-
 		# L = L[,!tst,drop=FALSE]
 
 		# add all univariate contrasts
-		Luni = .getAllUniContrasts( exprObj, formula, data)
+		Luni = .getAllUniContrasts( exprObj, formula, data, Linit = Linit)
 		L = cbind(L, Luni)
 	}
 
@@ -526,7 +530,7 @@ dream <- function( exprObj, formula, data, L, ddf = c("Satterthwaite", "Kenward-
 
 		# if( !quiet ) message("Applying eBayes()...")
 		# ret = eBayes( ret )
-	}else{
+	} else {
 
 		# add response (i.e. exprObj[,j] to formula
 		form = paste( "gene14643$E", paste(as.character( formula), collapse=''))
@@ -536,7 +540,15 @@ dream <- function( exprObj, formula, data, L, ddf = c("Satterthwaite", "Kenward-
 		gene14643 = nextElem(exprIter(exprObjMat, weightsMatrix, useWeights))
 
 		timeStart = proc.time()
-		fitInit <- lmerTest::lmer( eval(parse(text=form)), data=data,..., REML=REML, control=control )
+		if (missing(fitInit)) {
+		  fitInit <- lme4::lmer( eval(parse(text=form)), data=data,..., REML=REML, control=control )
+
+  		# check that model fit is valid, and throw warning if not
+  		checkModelStatus( fitInit, showWarnings=!suppressWarnings, dream=TRUE, colinearityCutoff=colinearityCutoff )
+		  
+		  if (return.fitInit) return(fitInit)
+		}
+		
 
 		# extract covariance matrices  
 		sigGStruct = get_SigmaG( fitInit )$G
@@ -547,7 +559,7 @@ dream <- function( exprObj, formula, data, L, ddf = c("Satterthwaite", "Kenward-
 		}
 		
 		# extract statistics from model
-		mod = .eval_lmm( fitInit, L, ddf)
+		# mod = .eval_lmm( fitInit, L, ddf)
 		timediff = proc.time() - timeStart
 
 		# check size of stored objects
@@ -557,9 +569,6 @@ dream <- function( exprObj, formula, data, L, ddf = c("Satterthwaite", "Kenward-
 		# showTime = timediff[3] * nrow(exprObj) / 60 / getDoParWorkers()
 
 		# message("Projected memory usage: >", format(objSize, units = "auto"), "\n")
-
-		# check that model fit is valid, and throw warning if not
-		checkModelStatus( fitInit, showWarnings=!suppressWarnings, dream=TRUE, colinearityCutoff=colinearityCutoff )
 
 		a = names(fixef(fitInit))
 		b = rownames(L)
@@ -586,12 +595,12 @@ dream <- function( exprObj, formula, data, L, ddf = c("Satterthwaite", "Kenward-
  
 			# fit linear mixed model
 			suppressWarnings({
-				fit <- lmerTest::lmer( eval(parse(text=form)), data=data2, REML=REML,..., weights=gene14643$weights, control=control,na.action=na.action)
+				fit <- lme4::lmer( eval(parse(text=form)), data=data2, REML=REML,..., weights=gene14643$weights, control=control,na.action=na.action)
 				})
 			# , start=theta
 
 			# extract statistics from model
-			mod = .eval_lmm( fit, L, ddf)
+			# mod = .eval_lmm( fit, L, ddf)
 
 			res = NULL
 			if( computeResiduals ){
@@ -655,114 +664,121 @@ dream <- function( exprObj, formula, data, L, ddf = c("Satterthwaite", "Kenward-
 			 REDUCE=c,
 		    reduce.in.order=TRUE,	
 			BPPARAM=BPPARAM)
-	
 		
-		names(resList) = seq_len(length(resList))
-		# pb$update( gene14643$max_iter / gene14643$max_iter )
-
-		if( !quiet ) message("\nTotal:", paste(format((proc.time() - timeStart)[3], digits=0), "s"))		
-
-		x = 1
-		# extract results
-		coefficients = foreach( x = resList, .combine=cbind ) %do% {x$ret$coefficients}
-		df.residual = foreach( x = resList, .combine=cbind ) %do% {	x$ret$df.residual}
-		pValue = foreach( x = resList, .combine=cbind ) %do% { x$ret$pValue }
-		stdev.unscaled  = foreach( x = resList, .combine=cbind ) %do% {x$ret$stdev.unscaled} 
-		if( computeResiduals ){
-			residuals = foreach( x = resList, .combine=cbind ) %do% { x$ret$residuals }
-		}
-
-		# transpose
-		coefficients = t( coefficients )
-		df.residual = t( df.residual )
-		pValue = t( pValue )
-		stdev.unscaled = t( stdev.unscaled )
+		if( !quiet ) message("\nTotal:", paste(format((proc.time() - timeStart)[3], digits=0), "s"))
 		
-		if( computeResiduals ){
-			residuals = t(residuals)
-			rownames(residuals) = rownames(exprObj)
-		}
-
-		colnames(coefficients) = colnames(L)
-		rownames(coefficients) = rownames(exprObj)
-
-		design = resList[[1]]$ret$design
-
-		colnames(df.residual) = colnames(L)
-		rownames(df.residual) = rownames(exprObj)
-
-		colnames(pValue) = colnames(L)
-		rownames(pValue) = rownames(exprObj)
-
-		Amean = sapply( resList, function(x) x$ret$Amean) 
-		names(Amean ) = rownames(exprObj)
-		method = "lmer"
-		sigma = sapply( resList, function(x) x$ret$sigma)
-		names(sigma) = rownames(exprObj)
-
-		varComp = lapply(resList, function(x) as.data.frame(x$varComp))
-		varComp = do.call("rbind", varComp)
-		rownames(varComp) = rownames(coefficients)
-
-		colnames(stdev.unscaled) = colnames(L)
-		rownames(stdev.unscaled) = rownames(exprObj)
-
-		ret = list( coefficients 	= coefficients,
-		 			design 			= design, 
-		 			df.residual 	= df.residual, 
-		 			Amean 			= Amean, 
-		 			method 			= method, 
-		 			sigma 			= sigma, 
-		 			contrasts 		= L,
-		 			stdev.unscaled 	= stdev.unscaled)
-
-		if( 'genes' %in% names(exprObjInit) ){
-			ret$genes = exprObjInit$genes
-		}
-
-		ret = new("MArrayLM", ret)
-		# ret$pValue = pValue
-
-		# set covariance between covariates
-		# C = solve(crossprod(ret$design))
-		# C = chol2inv(chol(crossprod(ret$design)))
-		V = chol2inv(qr(ret$design)$qr)
-		rownames(V) = colnames(ret$design)
-		colnames(V) = colnames(ret$design)
-
-		# remove intercept term if it exists
-		# fnd = colnames(C) == "(Intercept)" 
-		# if( any(fnd) ){
-		# 	C = C[!fnd,!fnd,drop=FALSE]
-		# }
-
-		if( ! univariateContrasts ){
-			# do expensive evaluation only when L is defined by the user
-			V = crossprod(chol(V) %*% L)
-		}
-
-		# covariance used by limma.  
-		# Assumes covariance is the same for all genes
-		ret$cov.coefficients = V
-
-		# allows covariance to differ for each gene based on variance components
-		ret$cov.coefficients.list = lapply(resList, function(x) as.matrix(x$vcov))
-
-		if( computeResiduals ){
-			ret$residuals = residuals
-		}
-
-		ret = as(ret, "MArrayLM2")
-		# add additional information for pinnacle
-		# ret = new("MArrayLM2", ret, varComp, sigGStruct)
-		attr(ret, "varComp") = varComp
-		attr(ret, "sigGStruct") = sigGStruct
-
-		# compute standard values for t/F/p without running eBayes
-		# eBayes can be run afterwards, if wanted
-		ret = .standard_transform( ret )
+		if(return.resList) return(resList)
+		
+		ret <- format.resList(resList, exprObjInit, univariateContrasts, computeResiduals)
+		
 	}
 	ret
+}
+
+format.resList <- function(resList, exprObjInit, univariateContrasts, computeResiduals = FALSE) {
+  
+  names(resList) = seq_len(length(resList))
+  # pb$update( gene14643$max_iter / gene14643$max_iter )
+  
+  x = 1
+  # extract results
+  coefficients = foreach( x = resList, .combine=cbind ) %do% {x$ret$coefficients}
+  df.residual = foreach( x = resList, .combine=cbind ) %do% {	x$ret$df.residual}
+  pValue = foreach( x = resList, .combine=cbind ) %do% { x$ret$pValue }
+  stdev.unscaled  = foreach( x = resList, .combine=cbind ) %do% {x$ret$stdev.unscaled} 
+  if( computeResiduals ){
+    residuals = foreach( x = resList, .combine=cbind ) %do% { x$ret$residuals }
+  }
+  
+  # transpose
+  coefficients = t( coefficients )
+  df.residual = t( df.residual )
+  pValue = t( pValue )
+  stdev.unscaled = t( stdev.unscaled )
+  
+  if( computeResiduals ){
+    residuals = t(residuals)
+    rownames(residuals) = rownames(exprObj)
+  }
+  
+  colnames(coefficients) = colnames(L)
+  rownames(coefficients) = rownames(exprObj)
+  
+  design = resList[[1]]$ret$design
+  
+  colnames(df.residual) = colnames(L)
+  rownames(df.residual) = rownames(exprObj)
+  
+  colnames(pValue) = colnames(L)
+  rownames(pValue) = rownames(exprObj)
+  
+  Amean = sapply( resList, function(x) x$ret$Amean) 
+  names(Amean ) = rownames(exprObj)
+  method = "lmer"
+  sigma = sapply( resList, function(x) x$ret$sigma)
+  names(sigma) = rownames(exprObj)
+  
+  varComp = lapply(resList, function(x) as.data.frame(x$varComp))
+  varComp = do.call("rbind", varComp)
+  rownames(varComp) = rownames(coefficients)
+  
+  colnames(stdev.unscaled) = colnames(L)
+  rownames(stdev.unscaled) = rownames(exprObj)
+  
+  ret = list( coefficients 	= coefficients,
+              design 			= design, 
+              df.residual 	= df.residual, 
+              Amean 			= Amean, 
+              method 			= method, 
+              sigma 			= sigma, 
+              contrasts 		= L,
+              stdev.unscaled 	= stdev.unscaled)
+  
+  if( 'genes' %in% names(exprObjInit) ){
+    ret$genes = exprObjInit$genes
+  }
+  
+  ret = new("MArrayLM", ret)
+  # ret$pValue = pValue
+  
+  # set covariance between covariates
+  # C = solve(crossprod(ret$design))
+  # C = chol2inv(chol(crossprod(ret$design)))
+  V = chol2inv(qr(ret$design)$qr)
+  rownames(V) = colnames(ret$design)
+  colnames(V) = colnames(ret$design)
+  
+  # remove intercept term if it exists
+  # fnd = colnames(C) == "(Intercept)" 
+  # if( any(fnd) ){
+  # 	C = C[!fnd,!fnd,drop=FALSE]
+  # }
+  
+  if( ! univariateContrasts ){
+    # do expensive evaluation only when L is defined by the user
+    V = crossprod(chol(V) %*% L)
+  }
+  
+  # covariance used by limma.  
+  # Assumes covariance is the same for all genes
+  ret$cov.coefficients = V
+  
+  # allows covariance to differ for each gene based on variance components
+  ret$cov.coefficients.list = lapply(resList, function(x) as.matrix(x$vcov))
+  
+  if( computeResiduals ){
+    ret$residuals = residuals
+  }
+  
+  ret = as(ret, "MArrayLM2")
+  # add additional information for pinnacle
+  # ret = new("MArrayLM2", ret, varComp, sigGStruct)
+  attr(ret, "varComp") = varComp
+  attr(ret, "sigGStruct") = sigGStruct
+  
+  # compute standard values for t/F/p without running eBayes
+  # eBayes can be run afterwards, if wanted
+  ret = .standard_transform( ret )
 }
 
 

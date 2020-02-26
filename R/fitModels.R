@@ -436,7 +436,7 @@ setGeneric("fitExtractVarPartModel", signature="exprObj",
 )
 
 # internal driver function
-.fitExtractVarPartModel <- function( exprObj, formula, data, REML=FALSE, useWeights=TRUE, weightsMatrix=NULL, adjust=NULL, adjustAll=FALSE, showWarnings=TRUE, colinearityCutoff=.999, control = lme4::lmerControl(calc.derivs=FALSE, check.rankX="stop.deficient" ), quiet=FALSE, BPPARAM=bpparam(),...){ 
+.fitExtractVarPartModel <- function( exprObj, formula, data, REML=FALSE, useWeights=TRUE, fitInit = NULL, return.fitInit = FALSE, check.valid = TRUE, weightsMatrix=NULL, adjust=NULL, adjustAll=FALSE, showWarnings=TRUE, colinearityCutoff=.999, control = lme4::lmerControl(calc.derivs=FALSE, check.rankX="stop.deficient" ), quiet=FALSE, BPPARAM=bpparam(),...){ 
 
 	# exprObj = as.matrix( exprObj )
 	formula = stats::as.formula( formula )
@@ -486,7 +486,9 @@ setGeneric("fitExtractVarPartModel", signature="exprObj",
 	# if less run lmer() in the loop
 	# else run lm()
 	gene14643 = nextElem(exprIter(exprObj, weightsMatrix, useWeights))
-	possibleError <- tryCatch( lmer( eval(parse(text=form)), data=data, control=control,... ), error = function(e) e)
+	possibleError <- FALSE
+	if (check.valid)
+	  possibleError <- tryCatch( lmer( eval(parse(text=form)), data=data, control=control,... ), error = function(e) e)
 
 	# detect error when variable in formula does not exist
 	if( inherits(possibleError, "error") ){
@@ -497,9 +499,7 @@ setGeneric("fitExtractVarPartModel", signature="exprObj",
 		}
 	}
 
-	if( !quiet) pb <- progress_bar$new(format = ":current/:total [:bar] :percent ETA::eta",,
-			total = nrow(exprObj), width= 60, clear=FALSE)
-
+	if( !quiet) pb <- progress_bar$new(format = ":current/:total [:bar] :percent ETA::eta", total = nrow(exprObj), width= 60, clear=FALSE)
 	# pids = .get_pids()
 
 	mesg <- "No random effects terms specified in formula"
@@ -530,7 +530,7 @@ setGeneric("fitExtractVarPartModel", signature="exprObj",
 
 		modelType = "anova"
 
-	}else{
+	} else {
 
 		if( inherits(possibleError, "error") && grep('the fixed-effects model matrix is column rank deficient', possibleError$message) == 1 ){
 			stop(paste(possibleError$message, "\n\nSuggestion: rescale fixed effect variables.\nThis will not change the variance fractions or p-values."))
@@ -541,8 +541,11 @@ setGeneric("fitExtractVarPartModel", signature="exprObj",
 		gene14643 = nextElem(exprIter(exprObj, weightsMatrix, useWeights))
 
 		timeStart = proc.time()
-		fitInit <- lmer( eval(parse(text=form)), data=data,..., REML=REML, control=control)
+		if (is.null(fitInit))
+		  fitInit <- lmer( eval(parse(text=form)), data=data,..., REML=REML, control=control)
 		timediff = proc.time() - timeStart
+		
+		if (return.fitInit) return(fitInit)
 
 		# total time = (time for 1 gene) * (# of genes) / 60 / (# of threads)
 		# showTime = timediff[3] * nrow(exprObj) / 60 / getDoParWorkers()
@@ -552,7 +555,8 @@ setGeneric("fitExtractVarPartModel", signature="exprObj",
 		# }
 
 		# check that model fit is valid, and throw warning if not
-		checkModelStatus( fitInit, showWarnings=showWarnings, colinearityCutoff=colinearityCutoff )
+		if (check.valid)
+		  checkModelStatus( fitInit, showWarnings=showWarnings, colinearityCutoff=colinearityCutoff )
 
 		timeStart = proc.time()
 

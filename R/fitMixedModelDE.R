@@ -543,11 +543,12 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
 		if (missing(fitInit)) {
 		  fitInit <- lme4::lmer( eval(parse(text=form)), data=data,..., REML=REML, control=control )
 
-  		# check that model fit is valid, and throw warning if not
-  		checkModelStatus( fitInit, showWarnings=!suppressWarnings, dream=TRUE, colinearityCutoff=colinearityCutoff )
-		  
 		  if (return.fitInit) return(fitInit)
+		  
 		}
+		# Do this outside of function call
+		# check that model fit is valid, and throw warning if not
+		# checkModelStatus( fitInit, showWarnings=!suppressWarnings, dream=TRUE, colinearityCutoff=colinearityCutoff )
 		
 
 		# extract covariance matrices  

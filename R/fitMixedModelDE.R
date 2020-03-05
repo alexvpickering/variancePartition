@@ -601,7 +601,7 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
 			# , start=theta
 
 			# extract statistics from model
-			# mod = .eval_lmm( fit, L, ddf)
+			mod = .eval_lmm( fit, L, ddf)
 
 			res = NULL
 			if( computeResiduals ){
@@ -676,7 +676,10 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
 	ret
 }
 
-format.resList <- function(resList, exprObjInit, univariateContrasts, computeResiduals = FALSE) {
+format.resList <- function(resList, exprObj, L, computeResiduals = FALSE) {
+  
+  exprObjInit = exprObj
+  univariateContrasts <- missing(L)
   
   names(resList) = seq_len(length(resList))
   # pb$update( gene14643$max_iter / gene14643$max_iter )

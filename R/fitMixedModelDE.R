@@ -670,13 +670,15 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
 		
 		if(return.resList) return(resList)
 		
-		ret <- format.resList(resList, exprObjInit, univariateContrasts, computeResiduals)
+		ret <- format.resList(resList, exprObj, L, fitInit, computeResiduals)
 		
 	}
 	ret
 }
 
-format.resList <- function(resList, exprObj, L, computeResiduals = FALSE) {
+format.resList <- function(resList, exprObj, L, fitInit, computeResiduals = FALSE) {
+  
+  sigGStruct = get_SigmaG(fitInit)$G
   
   exprObjInit = exprObj
   univariateContrasts <- missing(L)

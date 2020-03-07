@@ -400,7 +400,7 @@ getContrast = function( exprObj, formula, data, coefficient, L){
 #' @rdname dream-method
 #' @importFrom pbkrtest get_SigmaG
 #' @importFrom BiocParallel bpiterate bpparam
-# @importFrom lmerTest lmer
+#' @importFrom lmerTest lmer
 dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resList = FALSE, return.fitInit = FALSE, ddf = c("Satterthwaite", "Kenward-Roger"), REML=TRUE, useWeights=TRUE, weightsMatrix=NULL, control = lme4::lmerControl(calc.derivs=FALSE, check.rankX="stop.deficient" ),suppressWarnings=FALSE, quiet=FALSE, BPPARAM=bpparam(), computeResiduals=FALSE, ...){ 
 
 	exprObjInit = exprObj
@@ -541,7 +541,7 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
 
 		timeStart = proc.time()
 		if (missing(fitInit)) {
-		  fitInit <- lme4::lmer( eval(parse(text=form)), data=data,..., REML=REML, control=control )
+		  fitInit <- lmer( eval(parse(text=form)), data=data,..., REML=REML, control=control )
 
 		  if (return.fitInit) return(fitInit)
 		  
@@ -596,7 +596,7 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
  
 			# fit linear mixed model
 			suppressWarnings({
-				fit <- lme4::lmer( eval(parse(text=form)), data=data2, REML=REML,..., weights=gene14643$weights, control=control,na.action=na.action)
+				fit <- lmer( eval(parse(text=form)), data=data2, REML=REML,..., weights=gene14643$weights, control=control,na.action=na.action)
 				})
 			# , start=theta
 

@@ -400,7 +400,7 @@ getContrast = function( exprObj, formula, data, coefficient, L){
 #' @rdname dream-method
 #' @importFrom pbkrtest get_SigmaG
 #' @importFrom BiocParallel bpiterate bpparam
-dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resList = FALSE, return.fitInit = FALSE, ddf = c("Satterthwaite", "Kenward-Roger"), REML=TRUE, useWeights=TRUE, weightsMatrix=NULL, control = lme4::lmerControl(calc.derivs=FALSE, check.rankX="stop.deficient" ),suppressWarnings=FALSE, quiet=FALSE, BPPARAM=bpparam(), computeResiduals=FALSE, ...){ 
+dream <- function( exprObj, formula, data, L, sigGStruct, fixefInit, thetaInit, Linit = NULL, return.resList = FALSE, return.fitInit = FALSE, ddf = c("Satterthwaite", "Kenward-Roger"), REML=TRUE, useWeights=TRUE, weightsMatrix=NULL, control = lme4::lmerControl(calc.derivs=FALSE, check.rankX="stop.deficient" ),suppressWarnings=FALSE, quiet=FALSE, BPPARAM=bpparam(), computeResiduals=FALSE, ...){ 
 
 	exprObjInit = exprObj
 	
@@ -539,21 +539,24 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
 		gene14643 = nextElem(exprIter(exprObjMat, weightsMatrix, useWeights))
 
 		timeStart = proc.time()
-		if (missing(fitInit)) {
+		if (missing(fixefInit) | missing(thetaInit) | (!return.resList & missing(sigGStruct))) {
+		  
 		  fitInit <- lmerTest::lmer( eval(parse(text=form)), data=data,..., REML=REML, control=control )
 		  if (return.fitInit) return(fitInit)
 		  
+  		# extract covariance matrices  
+  		sigGStruct <- get_SigmaG( fitInit )$G
+  		fixefInit <- fixef(fitInit)
+  		thetaInit <- fitInit@theta
 		}
 		# Do this outside of function call
 		# check that model fit is valid, and throw warning if not
 		# checkModelStatus( fitInit, showWarnings=!suppressWarnings, dream=TRUE, colinearityCutoff=colinearityCutoff )
 		
 
-		# extract covariance matrices  
-		sigGStruct = get_SigmaG( fitInit )$G
 		
 		# check L
-		if( ! identical(rownames(L), names(fixef(fitInit))) ){
+		if( ! identical(rownames(L), names(fixefInit)) ){
 			stop("Names of entries in L must match fixed effects")
 		}
 		
@@ -569,7 +572,7 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
 
 		# message("Projected memory usage: >", format(objSize, units = "auto"), "\n")
 
-		a = names(fixef(fitInit))
+		a = names(fixefInit)
 		b = rownames(L)
 
 		if( ! identical( a,b) ){
@@ -659,7 +662,7 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
 		if( !quiet ) message(paste0("Dividing work into ",attr(it, "n_chunks")," chunks..."))
 
 		resList <- bpiterate( it, .eval_master, 
-			data2=data2, form=form, REML=REML, theta=fitInit@theta, control=control,..., 
+			data2=data2, form=form, REML=REML, theta=thetaInit, control=control,..., 
 			 REDUCE=c,
 		    reduce.in.order=TRUE,	
 			BPPARAM=BPPARAM)
@@ -668,15 +671,13 @@ dream <- function( exprObj, formula, data, L, fitInit, Linit = NULL, return.resL
 		
 		if(return.resList) return(resList)
 		
-		ret <- format.resList(resList, exprObj, L, fitInit, computeResiduals)
+		ret <- format.resList(resList, exprObj, L, sigGStruct, computeResiduals)
 		
 	}
 	ret
 }
 
-format.resList <- function(resList, exprObj, L, fitInit, computeResiduals = FALSE) {
-  
-  sigGStruct = get_SigmaG(fitInit)$G
+format.resList <- function(resList, exprObj, L, sigGStruct, computeResiduals = FALSE) {
   
   exprObjInit = exprObj
   univariateContrasts <- missing(L)

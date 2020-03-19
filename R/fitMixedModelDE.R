@@ -401,7 +401,6 @@ getContrast = function( exprObj, formula, data, coefficient, L){
 #' @importFrom pbkrtest get_SigmaG
 #' @importFrom BiocParallel bpiterate bpparam
 dream <- function( exprObj, formula, data, L, sigGStruct, fixefInit, thetaInit, Linit = NULL, return.resList = FALSE, return.fitInit = FALSE, ddf = c("Satterthwaite", "Kenward-Roger"), REML=TRUE, useWeights=TRUE, weightsMatrix=NULL, control = lme4::lmerControl(calc.derivs=FALSE, check.rankX="stop.deficient" ),suppressWarnings=FALSE, quiet=FALSE, BPPARAM=bpparam(), computeResiduals=FALSE, ...){ 
-
 	exprObjInit = exprObj
 	
 	exprObjMat = as.matrix( exprObj )
@@ -462,34 +461,12 @@ dream <- function( exprObj, formula, data, L, sigGStruct, fixefInit, thetaInit, 
 	###########
 
 	univariateContrasts = FALSE
-	if( missing(L) ){
+	if(missing(L)){
 		# all univariate contrasts
 		L = .getAllUniContrasts( exprObj, formula, data, Linit = Linit)
 		univariateContrasts = TRUE
-	}else{
-		# format contrasts 
-		if( is(L, "numeric") ){
-			L = as.matrix(L, ncol=1)
-		}else if( is(L, 'data.frame') ){
-			L = as.matrix(L)
-		}
-		if( is.null(colnames(L)) ){
-			colnames(L) = paste0('L', seq_len(ncol(L)))
-		}
-
-		# check columns that only have a single 1
-		tst = apply(L, 2, function(x){
-			length(x[x!=0]) == 1
-			})
-		if( any(tst) ){
-			warning("Contrasts with only a single non-zero term are already evaluated by default.")
-		}
-		# remove univariate contrasts
-		# L = L[,!tst,drop=FALSE]
-
-		# add all univariate contrasts
-		Luni = .getAllUniContrasts( exprObj, formula, data, Linit = Linit)
-		L = cbind(L, Luni)
+	} else {
+		L <- format.contrasts(exprObj, formula, data, L, Linit = Linit)
 	}
 
 	if( ncol(L) == 0){
@@ -614,15 +591,15 @@ dream <- function( exprObj, formula, data, L, sigGStruct, fixefInit, thetaInit, 
 			# 	pb$update( gene14643$n_iter / gene14643$max_iter )
 			# }
 
-			ret = list(	coefficients 	= mod$beta, 
-						design 			= fit@pp$X, 
-						df.residual 	= mod$df, 
-						Amean 			= mean(fit@frame[,1]), 
-						method 			= 'lmer',
-						sigma 			= mod$sigma,
+			ret = list(coefficients	= mod$beta, 
+						design	= fit@pp$X, 
+						df.residual	= mod$df, 
+						Amean	= mean(fit@frame[,1]), 
+						method	= 'lmer',
+						sigma	= mod$sigma,
 						stdev.unscaled 	= mod$SE/mod$sigma,
-						pValue 			= mod$pValue,
-						residuals 		= res)
+						pValue	= mod$pValue,
+						residuals	= res)
 
 			# get variance terms for random effects
 			varComp <- lapply(lme4::VarCorr(fit), function(fit) attr(fit, "stddev")^2)
@@ -635,7 +612,7 @@ dream <- function( exprObj, formula, data, L, sigGStruct, fixefInit, thetaInit, 
 				V = crossprod(chol(mod$vcov) %*% L)
 			}
 
-			list( 	ret = new("MArrayLM", ret),
+			list(ret = new("MArrayLM", ret),
 					varComp = varComp,
 					vcov = V)
 		}
@@ -677,11 +654,36 @@ dream <- function( exprObj, formula, data, L, sigGStruct, fixefInit, thetaInit, 
 	ret
 }
 
-format.resList <- function(resList, exprObj, L, sigGStruct, computeResiduals = FALSE) {
+format.contrasts <- function(exprObj, formula, data, L, Linit = NULL) {
+  # format contrasts 
+  if( is(L, "numeric") ){
+    L = as.matrix(L, ncol=1)
+  }else if( is(L, 'data.frame') ){
+    L = as.matrix(L)
+  }
+  if( is.null(colnames(L)) ){
+    colnames(L) = paste0('L', seq_len(ncol(L)))
+  }
   
+  # check columns that only have a single 1
+  tst = apply(L, 2, function(x){
+    length(x[x!=0]) == 1
+  })
+  if( any(tst) ){
+    warning("Contrasts with only a single non-zero term are already evaluated by default.")
+  }
+  # remove univariate contrasts
+  # L = L[,!tst,drop=FALSE]
+  
+  # add all univariate contrasts
+  Luni = .getAllUniContrasts( exprObj, formula, data, Linit = Linit)
+  cbind(L, Luni)
+}
+
+
+
+format.resList <- function(resList, exprObj, L, sigGStruct, univariateContrasts, computeResiduals = FALSE) {
   exprObjInit = exprObj
-  univariateContrasts <- missing(L)
-  
   names(resList) = seq_len(length(resList))
   # pb$update( gene14643$max_iter / gene14643$max_iter )
   
@@ -730,13 +732,13 @@ format.resList <- function(resList, exprObj, L, sigGStruct, computeResiduals = F
   colnames(stdev.unscaled) = colnames(L)
   rownames(stdev.unscaled) = rownames(exprObj)
   
-  ret = list( coefficients 	= coefficients,
-              design 			= design, 
-              df.residual 	= df.residual, 
-              Amean 			= Amean, 
-              method 			= method, 
-              sigma 			= sigma, 
-              contrasts 		= L,
+  ret <- list(coefficients	= coefficients,
+              design = design, 
+              df.residual	= df.residual, 
+              Amean	= Amean, 
+              method	= method, 
+              sigma	= sigma, 
+              contrasts	= L,
               stdev.unscaled 	= stdev.unscaled)
   
   if( 'genes' %in% names(exprObjInit) ){
@@ -811,7 +813,7 @@ format.resList <- function(resList, exprObj, L, sigGStruct, computeResiduals = F
 	out$p.value <- 2*pt(-abs(out$t),df=df.residual)
 
 	# F-test
-	if(!is.null(out$design) && is.fullrank(out$design)) {
+	if(!is.null(out$design) && is.fullrank(out$design)){
 
 		# only evaluate F-stat on real coefficients, not contrasts
 		realcoef = colnames(out)[colnames(out) %in% colnames(out$design)]

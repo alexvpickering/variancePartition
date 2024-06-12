@@ -27,8 +27,11 @@
 \item{winsor.tail.p}{winsor.tail.p}
 }
 \value{
-results of eBayes
+results of eBayes using approximated residual degrees of freedom
 }
 \description{
-eBayes for MArrayLM2
+eBayes for result of linear mixed model for with \code{dream()} using residual degrees of freedom approximated with \code{rdf.merMod()}
+}
+\seealso{
+dream rdf.merMod
 }

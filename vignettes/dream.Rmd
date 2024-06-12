@@ -1,25 +1,8 @@
 ---
-title: "dream: Differential expression testing with linear mixed models for repeated measures"
-author:
-- name: "[Gabriel Hoffman](http://gabrielhoffman.github.io)"
-  affiliation: | 
-    Icahn School of Medicine at Mount Sinai, New York
-abstract: > 
-  **D**ifferential expression for **re**pe**a**ted **m**easures (dream) uses a linear model model to increase power and decrease false positives for RNA-seq datasets with multiple measurements per individual.  The analysis fits seamlessly into the widely used workflow of limma/voom [@Law2014].  
-  <br><br> 
-  Dream uses a linear model model to increase power and decrease false positives for RNA-seq datasets with repeated measurements.  Dream achieves this by combining multiple statistical concepts into a single statistical model.  The model includes: 
-  <br>  
-    - flexible modeling of repeated measures gene expression data<br> 
-    - precision weights to model measurement error in RNA-seq counts<br> 
-    - ability to model multiple random effects<br>
-    - random effects estimated separately for each gene<br>
-    - hypothesis testing for fixed effects in linear mixed models<br>
-    - small sample size hypothesis test<br>
-  <br> 
-  Dream also includes multi-threaded analysis across thousands of genes on a multi-core machine.<br> <br> 
-  variancePartition v`r packageVersion("variancePartition")`<br> 
-  `r format(Sys.time(),'%B %d, %Y %H:%M:%S')`<br>  
-
+title: "dream analysis"
+subtitle: "Differential expression testing with linear mixed models for repeated measures"
+author: "Developed by [Gabriel Hoffman](http://gabrielhoffman.github.io/)"
+date: "Run on `r format(Sys.time())`"
 output:
   rmarkdown::html_document:
     highlight: pygments
@@ -39,6 +22,7 @@ cd /Users/gabrielhoffman/workspace/repos
 R
 library('knitr')
 rmarkdown::render('variancePartition/vignettes/dream.Rmd')
+rmarkdown::render('dream.Rmd')
 
 # create public version
 grep -v "## Warning" /Users/gabrielhoffman/workspace/repos/variancePartition/vignettes/dream.html > /Users/gabrielhoffman/workspace/repos/variancePartition/vignettes/dream2.html
@@ -46,33 +30,42 @@ grep -v "## Warning" /Users/gabrielhoffman/workspace/repos/variancePartition/vig
 --->
 
 ```{r setup, echo=FALSE, results="hide"}
-knitr::opts_chunk$set(tidy=FALSE, cache=TRUE,
-                      dev="png",
-                      package.startup.message = FALSE,
-                      message=FALSE, error=FALSE, warning=TRUE)
-options(width=100)
+knitr::opts_chunk$set(
+  tidy = FALSE, cache = TRUE,
+  dev = "png",
+  package.startup.message = FALSE,
+  message = FALSE, error = FALSE, warning = TRUE
+)
+options(width = 100)
 ```	
+
+<style>
+body {
+text-align: justify}
+</style>
+
 
 <!---
 # Description
 Dream uses a linear model model to increase power and decrease false positives for RNA-seq datasets with repeated measurements.  Dream achieves this by combining multiple statistical concepts into a single statistical model.  The dream model includes:     
 
 ```{r kable, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
-library('pander')
-tab = rbind(c('precision weights to model measurement error in RNA-seq counts', "limma/voom", "@Law2014"),
-  c('ability to model multiple random effects', 'lme4', '@Bates2015'),
-  c('random effects estimated separately for each gene', 'variancePartition', '@hoffman2016'),
-  c('hypothesis testing for fixed effects in linear mixed models', 'lmerTest', 'Kuznetsova, et al. -@kuznetsova2017'),
-  c('small sample size hypothesis test', 'pbkrtest' , 'Halekoh, et al. -@halekoh2014'), 
+library("pander")
+tab <- rbind(
+  c("precision weights to model measurement error in RNA-seq counts", "limma/voom", "@Law2014"),
+  c("ability to model multiple random effects", "lme4", "@Bates2015"),
+  c("random effects estimated separately for each gene", "variancePartition", "@hoffman2016"),
+  c("hypothesis testing for fixed effects in linear mixed models", "lmerTest", "Kuznetsova, et al. -@kuznetsova2017"),
+  c("small sample size hypothesis test", "pbkrtest", "Halekoh, et al. -@halekoh2014"),
   # c('emprical Bayes moderated t-test', 'limma/eBayes', '@smyth2004'),
-  c('','','')
-  )
-colnames(tab) = c("Model property", "Package", "Reference")
+  c("", "", "")
+)
+colnames(tab) <- c("Model property", "Package", "Reference")
 
-panderOptions('table.split.table', Inf)
-panderOptions('table.alignment.default', 'left')
+panderOptions("table.split.table", Inf)
+panderOptions("table.alignment.default", "left")
 
-pander(tab, style = 'rmarkdown')
+pander(tab, style = "rmarkdown")
 ```
 * flexible modeling of repeated measures gene expression data
 * precision weights to model measurement error in RNA-seq counts
@@ -83,79 +76,96 @@ pander(tab, style = 'rmarkdown')
 * multi-threaded analysis across thousands of genes on a multi-core machine.
 --->
 
+**D**ifferential expression for **re**pe**a**ted **m**easures (dream) uses a linear model model to increase power and decrease false positives for RNA-seq datasets with multiple measurements per individual.  The analysis fits seamlessly into the widely used workflow of limma/voom [@Law2014].  Dream uses a linear model model to increase power and decrease false positives for RNA-seq datasets with repeated measurements.  Dream achieves this by combining multiple statistical concepts into a single statistical model.  The model includes: 
+
+  - flexible modeling of repeated measures gene expression data<br> 
+  - precision weights to model measurement error in RNA-seq counts<br> 
+  - ability to model multiple random effects<br>
+  - random effects estimated separately for each gene<br>
+  - hypothesis testing for fixed effects in linear mixed models<br>
+  - small sample size hypothesis test<br>
+  
+  Dream also includes multi-threaded analysis across thousands of genes on a multi-core machine.
+
+
+
 # Standard RNA-seq processing
 This tutorial assumes that the reader is familiar with the limma/voom workflow for RNA-seq.  Process raw count data using limma/voom.  
 ```{r preprocess, eval=TRUE, results='hide'}
-library('variancePartition')
-library('edgeR')
-library('BiocParallel')
+library("variancePartition")
+library("edgeR")
+library("BiocParallel")
 data(varPartDEdata)
 
 # filter genes by number of counts
-isexpr = rowSums(cpm(countMatrix)>0.1) >= 5
+isexpr <- rowSums(cpm(countMatrix) > 0.1) >= 5
 
 # Standard usage of limma/voom
-geneExpr = DGEList( countMatrix[isexpr,] )
-geneExpr = calcNormFactors( geneExpr )
+dge <- DGEList(countMatrix[isexpr, ])
+dge <- calcNormFactors(dge)
 
 # make this vignette faster by analyzing a subset of genes
-geneExpr = geneExpr[1:1000,]
+dge <- dge[1:1000, ]
 ```
 
 # Limma Analysis
 Limma has a built-in approach for analyzing repeated measures data using `duplicateCorrelation()`.  The model can handle a single random effect, and forces the magnitude of the random effect to be the same across all genes.
 ```{r dupCor, eval=TRUE}
 # apply duplicateCorrelation is two rounds
-design = model.matrix( ~ Disease, metadata)
-vobj_tmp = voom( geneExpr, design, plot=FALSE)
-dupcor <- duplicateCorrelation(vobj_tmp,design,block=metadata$Individual)
+design <- model.matrix(~Disease, metadata)
+vobj_tmp <- voom(dge, design, plot = FALSE)
+dupcor <- duplicateCorrelation(vobj_tmp, design, block = metadata$Individual)
 
 # run voom considering the duplicateCorrelation results
 # in order to compute more accurate precision weights
 # Otherwise, use the results from the first voom run
-vobj = voom( geneExpr, design, plot=FALSE, block=metadata$Individual, correlation=dupcor$consensus)
+vobj <- voom(dge, design, plot = FALSE, block = metadata$Individual, correlation = dupcor$consensus)
 
 # Estimate linear mixed model with a single variance component
-# Fit the model for each gene, 
-dupcor <- duplicateCorrelation(vobj, design, block=metadata$Individual)
+# Fit the model for each gene,
+dupcor <- duplicateCorrelation(vobj, design, block = metadata$Individual)
 
 # But this step uses only the genome-wide average for the random effect
-fitDupCor <- lmFit(vobj, design, block=metadata$Individual, correlation=dupcor$consensus)
+fitDupCor <- lmFit(vobj, design, block = metadata$Individual, correlation = dupcor$consensus)
 
 # Fit Empirical Bayes for moderated t-statistics
-fitDupCor <- eBayes( fitDupCor )
+fitDupCor <- eBayes(fitDupCor)
 ```
 
 # Dream Analysis
-The dream method replaces two core functions of limma with a linear mixed model.
+The dream method replaces 4 core functions of limma with a linear mixed model.
 
-1. `voomWithDreamWeights()` replaces `voom()` to estimate precision weights 
+1. `voomWithDreamWeights()` replaces `voom()` to estimate precision weights
 2. `dream()` replaces `lmFit()` to estimate regression coefficients.  
+3. `variancePartition::eBayes()` replaces `limma::eBayes()` to apply empircal Bayes shrinkage on linear mixed models.
+4. `variancePartition::topTable()` replaces `limma::topTable()` to give seamless access to results from `dream()`.
 
-Otherwise dream uses the same workflow as limma with `topTable()`, since any statistical differences are handled behind the scenes.
+For models with only fixed effects, `variancePartition::eBayes()`, and `variancePartition::topTable()` work seamlessly and give results equivalent to the `limma` functions with the same name.  From the user perspective, the `dream()` workflow is the same as `limma` since the statistical differences are handled behind the scenes.
   
 ```{r lmm, eval=TRUE, message=FALSE, fig.height=2, results='hide'}
 # Specify parallel processing parameters
 # this is used implicitly by dream() to run in parallel
-param = SnowParam(4, "SOCK", progressbar=TRUE)
-register(param)
+param <- SnowParam(4, "SOCK", progressbar = TRUE)
 
 # The variable to be tested must be a fixed effect
-form <- ~ Disease + (1|Individual) 
+form <- ~ Disease + (1 | Individual)
 
 # estimate weights using linear mixed model of dream
-vobjDream = voomWithDreamWeights( geneExpr, form, metadata )
+vobjDream <- voomWithDreamWeights(dge, form, metadata, BPPARAM = param)
 
 # Fit the dream model on each gene
-# By default, uses the Satterthwaite approximation for the hypothesis test
-fitmm = dream( vobjDream, form, metadata )
+# For the hypothesis testing, by default,
+# dream() uses the KR method for <= 20 samples,
+# otherwise it uses the Satterthwaite approximation
+fitmm <- dream(vobjDream, form, metadata)
+fitmm <- eBayes(fitmm)
 ```
 ```{r lmm.print}
 # Examine design matrix
 head(fitmm$design, 3)
 
 # Get results of hypothesis test on coefficients of interest
-topTable( fitmm, coef='Disease1', number=3 )
+topTable(fitmm, coef = "Disease1", number = 3)
 ```
 Since dream uses an estimated degrees of freedom value for each hypothsis test, the degrees of freedom is different for each gene here.  Therefore, the t-statistics are not directly comparable since they have different degrees of freedom.  In order to be able to compare test statistics, we report `z.std` which is the p-value transformed into a signed z-score.  This can be used for downstream analysis.
 
@@ -165,42 +175,50 @@ Note that if a random effect is not specified, `dream()` automatically uses `lmF
 ### Using contrasts to compare coefficients
 You can also perform a hypothesis test of the *difference* between two or more coefficients by using a contrast matrix.  The contrasts are evaluated at the time of the model fit and the results can be extracted with `topTable()`.  This behaves like `makeContrasts()` and `contrasts.fit()` in limma.
 
- Make sure to inspect your contrast matrix to confirm it is testing what you intend. 
-```{r contrast, eval=TRUE, fig.width=7, fig.height=2}
-form <- ~ 0 + DiseaseSubtype + Sex + (1|Individual)  
-L = getContrast( vobjDream, form, metadata, c("DiseaseSubtype2", "DiseaseSubtype1"))
+ Multiple contrasts can be evaluated at the same time, in order to save computation time.  Make sure to inspect your contrast matrix to confirm it is testing what you intend. 
+```{r contrast, eval=TRUE, fig.width=8, fig.height=3}
+form <- ~ 0 + DiseaseSubtype + Sex + (1 | Individual)
+
+L <- makeContrastsDream(form, metadata,
+  contrasts = c(
+    compare2_1 = "DiseaseSubtype2 - DiseaseSubtype1",
+    compare1_0 = "DiseaseSubtype1 - DiseaseSubtype0"
+  )
+)
 
 # Visualize contrast matrix
-plotContrasts(L) 
+plotContrasts(L)
 ```
+
 ```{r fit.contrast}
 # fit dream model with contrasts
-fit = dream( vobjDream, form, metadata, L)
+fit <- dream(vobjDream, form, metadata, L)
+fit <- eBayes(fit)
 
 # get names of available coefficients and contrasts for testing
 colnames(fit)
 
 # extract results from first contrast
-topTable( fit, coef="L1", number=3 )
+topTable(fit, coef = "compare2_1", number = 3)
 ```
 
-Multiple contrasts can be evaluated at the same time, in order to save computation time:
-```{r contrast.combine, eval=TRUE, fig.width=7, fig.height=3}
-form <- ~ 0 + DiseaseSubtype + Sex + (1|Individual) 
+### Comparing multiple coefficients
 
-# define and then cbind contrasts
-L1 = getContrast( vobjDream, form, metadata, c("DiseaseSubtype2", "DiseaseSubtype1"))
-L2 = getContrast( vobjDream, form, metadata, c("DiseaseSubtype1", "DiseaseSubtype0"))
-L = cbind(L1, L2)     
+So far contrasts have only involved the difference between two coefficients.  But contrasts can also compare any linear combination of coefficients.  Here, consider comparing `DiseaseSubtype0` to the mean of `DiseaseSubtype1` and `DiseaseSubtype2`. Note you can also customize the name of the contrast.
 
-# Visualize contrasts
-plotContrasts(L) 
+```{r maual.contrasts, fig.width=8, fig.height=4}
+L2 <- makeContrastsDream(form, metadata,
+  contrasts =
+    c(Test1 = "DiseaseSubtype0 - (DiseaseSubtype1 + DiseaseSubtype2)/2")
+)
 
-# fit both contrasts
-fit = dream( vobjDream, form, metadata, L)
+plotContrasts(L2)
 
-# extract results from first contrast
-topTable( fit, coef="L1", number=3 )
+# fit dream model to evaluate contrasts
+fit <- dream(vobjDream[1:10, ], form, metadata, L = L2)
+fit <- eBayes(fit)
+
+topTable(fit, coef = "Test1", number = 3)
 ```
 
 ### Joint hypothesis test of multiple coefficients
@@ -208,15 +226,16 @@ Joint hypothesis testing of multiple coefficients at the same time can be perfor
 
 ```{r joint.test, fig.height=3, message=FALSE}
 # extract results from first contrast
-topTable( fit, coef=c("DiseaseSubtype2", "DiseaseSubtype1"), number=3 )
+topTable(fit, coef = c("DiseaseSubtype2", "DiseaseSubtype1"), number = 3)
 ```
-Since dream uses an estimated degrees of freedom value for each hypothsis test, the degrees of freedom is different for each gene here.  Therefore, the F-statistics are not directly comparable since they have different degrees of freedom.  In order to be able to compare test statistics, we report `F.std` which is the p-value transformed into an F-statistic with $df_1={\text{number of coefficiets tested}}$ and $df_2=\infty$.  This can be used for downstream analysis.
+Since dream uses an estimated degrees of freedom value for each hypothsis test, the degrees of freedom is different for each gene here.  Therefore, the F-statistics are not directly comparable since they have different degrees of freedom.  In order to be able to compare test statistics, we report `F.std` which is the p-value transformed into an F-statistic with $df_1$ the number of coefficients tested and $df_2=\infty$.  This can be used for downstream analysis.
 
 
 ## Small-sample method
 For small datasets, the Kenward-Roger method can be more powerful.  But it is **substantially** more computationally intensive.
 ```{r kr, eval=FALSE}
-fitmmKR = dream( vobjDream, form, metadata, ddf="Kenward-Roger")
+fitmmKR <- dream(vobjDream, form, metadata, ddf = "Kenward-Roger")
+fitmmKR <- eBayes(fitmmKR)
 ```
 
 ## variancePartition plot
@@ -225,20 +244,20 @@ Dream and variancePartition share the same underlying linear mixed model framewo
 # Note: this could be run with either vobj from voom()
 # or vobjDream from voomWithDreamWeights()
 # The resuylts are similar
-form = ~ (1|Individual) + (1|Disease)
-vp = fitExtractVarPartModel( vobj, form, metadata)
+form <- ~ (1 | Individual) + (1 | Disease)
+vp <- fitExtractVarPartModel(vobj, form, metadata)
 
-plotVarPart( sortCols(vp))
+plotVarPart(sortCols(vp))
 ```
 
-## Compare p-values from dream and duplicateCorrelation
-In order to understand the empircal difference between dream and duplication correlation, we can plot the $-\log_{10}$ p-values from both methods.
+## Comparing p-values 
+Here we compare p-values from from `dream()` and `duplicateCorrelation`. In order to understand the empircal difference between them, we can plot the $-\log_{10}$ p-values from each method.
 ```{r define}
 # Compare p-values and make plot
-p1 = topTable(fitDupCor, coef="Disease1", number=Inf, sort.by="none")$P.Value
-p2 = topTable(fitmm, number=Inf, sort.by="none")$P.Value
+p1 <- topTable(fitDupCor, coef = "Disease1", number = Inf, sort.by = "none")$P.Value
+p2 <- topTable(fitmm, number = Inf, sort.by = "none")$P.Value
 
-plotCompareP( p1, p2, vp$Individual, dupcor$consensus)
+plotCompareP(p1, p2, vp$Individual, dupcor$consensus)
 ```
 
 The duplicateCorrelation method estimates a single variance term genome-wide even though the donor contribution of a particular gene can vary substantially from the genome-wide trend.  Using a single value genome-wide for the within-donor variance can reduce power and increase the false positive rate in a particular, reproducible way.  Let $\tau^2_g$  be the value of the donor component for gene $g$ and $\bar{\tau}^2$ be the genome-wide mean.  For genes where $\tau^2_g>\bar{\tau}^2$, using $\bar{\tau}^2$ under-corrects for the donor component so that it increases the false positive rate compared to using $\tau^2_g$.  Conversely, for genes where $\tau^2_g<\bar{\tau}^2$, using $\bar{\tau}^2$ over-corrects for the donor component so that it decreases power.  Increasing sample size does not overcome this issue.  The dream method overcomes this issue by using a $\tau^2_g$.
@@ -252,34 +271,26 @@ The duplicateCorrelation method estimates a single variance term genome-wide eve
 # Parallel processing
 variancePartition functions including `dream()`, `fitExtractVarPartModel()` and `fitVarPartModel()` can take advange of multicore machines to speed up analysis.  It uses the [BiocParallel](http://bioconductor.org/packages/BiocParallel/) package to manage the parallelization.
 
-There are multiple ways to use parallel processing depending on your needs
-
 - Specify parameters with the BPPARAM argument.
 ```{r parallel, eval=FALSE}
 # Request 4 cores, and enable the progress bar
 # This is the ideal for Linux, OS X and Windows
-param = SnowParam(4, "SOCK", progressbar=TRUE)
-fitmm = dream( vobjDream, form, metadata, BPPARAM=param)
-
-# Or disable parallel processing and just do serial 
-param = SerialParam()
-fitmm = dream( vobjDream, form, metadata, BPPARAM=param)
+param <- SnowParam(4, "SOCK", progressbar = TRUE)
+fitmm <- dream(vobjDream, form, metadata, BPPARAM = param)
 ```
-- Set parameters globally for the entire R session
-```{r parallel2, eval=FALSE}
-param = SnowParam(4, "SOCK", progressbar=TRUE)
-register(param)
+By default `BPPARAM = SerialParam()`. 
 
-# uses global parallel processing settings
-fitmm = dream( vobjDream, form, metadata )
-```
 
+<!---
 By default `BPPARAM` and the global setttings are set the results of `bpparam()`.  But note that using `SnowParam()` can *dramatically* reduce the memory usage needed for parallel processing because it reduces memory redundancy between threads.
+--->
 
 # Session info
-```{r sessionInfo}
+<details>
+```{r sessionInfo, echo=FALSE}
 sessionInfo()
 ```
+<\details>
 
 # References
 

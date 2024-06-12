@@ -1,383 +1,363 @@
+# Gabriel Hoffman
+#
+# October 13, 2020
+# Simplify calculations of variance fractions and
+# add compatability with glm's
 
 
 #' Compute variance statistics
-#' 
+#'
 #' Compute fraction of variation attributable to each variable in regression model.  Also interpretable as the intra-class correlation after correcting for all other variables in the model.
 #'
 #' @param fit model fit from lm() or lmer()
-#' @param adjust remove variation from specified variables from the denominator.  This computes the adjusted ICC with respect to the specified variables
-#' @param adjustAll adjust for all variables.  This computes the adjusted ICC with respect to all variables
-#' @param showWarnings show warnings about model fit (default TRUE)
+#' @param returnFractions default: TRUE.  If TRUE return fractions that sum to 1.  Else return unscaled variance components.
 #' @param ... additional arguments (not currently used)
-#' 
+#'
 #' @return
-#' fraction of variance explained / ICC for each variable in the model
-#' 
+#' fraction of variance explained / ICC for each variable in the regression model
+#'
+#' @details
+#' For linear model, variance fractions are computed based on the sum of squares explained by each component.  For the linear mixed model, the variance fractions are computed by variance component estimates for random effects and sum of squares for fixed effects.
+#'
+#' For a generalized linear model, the variance fraction also includes the contribution of the link function so that fractions are reported on the linear (i.e. link) scale rather than the observed (i.e. response) scale. For linear regression with an identity link, fractions are the same on both scales.  But for logit or probit links, the fractions are not well defined on the observed scale due to the transformation imposed by the link function.
+#'
+#' The variance implied by the link function is the variance of the corresponding distribution:
+#'
+#'  logit -> logistic distribution -> variance is pi^2/3
+#'
+#'  probit -> standard normal distribution -> variance is 1
+#'
+#' For the Poisson distribution with rate \eqn{\lambda}, the variance is \eqn{log(1 + 1/\lambda)}.
+#'
+#' For the negative binomial distribution with rate \eqn{\lambda} and shape \eqn{\theta}, the variance is \eqn{log(1 + 1/\lambda + 1/\theta)}.
+#'
+#' Variance decomposition is reviewed by Nakagawa and Schielzeth (2012), and expanded to other GLMs by Nakagawa, Johnson and Schielzeth (2017).  See McKelvey and Zavoina (1975) for early work on applying to GLMs.  Also see DeMaris (2002)
+#'
+#' We note that Nagelkerke's pseudo R^2 evaluates the variance explained by the full model.  Instead, a variance partitioning approach evaluates the variance explained by each term in the model, so that the sum of each systematic plus random term sums to 1 (Hoffman and Schadt, 2016; Nakagawa and Schielzeth, 2012).
+#'
+#' @references{
+#'   \insertRef{nakagawa2017coefficient}{variancePartition}
+#'
+#'   \insertRef{nakagawa2013general}{variancePartition}
+#'
+#'   \insertRef{mckelvey1975statistical}{variancePartition}
+#'
+#'   \insertRef{demaris2002explained}{variancePartition}
+#'
+#'   \insertRef{hoffman2016variancepartition}{variancePartition}
+#' }
+#'
 #' @examples
 #' library(lme4)
 #' data(varPartData)
 #'
 #' # Linear mixed model
-#' fit <- lmer( geneExpr[1,] ~ (1|Tissue) + Age, info)
-#' calcVarPart( fit )
+#' fit <- lmer(geneExpr[1, ] ~ (1 | Tissue) + Age, info)
+#' calcVarPart(fit)
 #'
 #' # Linear model
 #' # Note that the two models produce slightly different results
-#' # This is expected: they are different statistical estimates 
+#' # This is expected: they are different statistical estimates
 #' # of the same underlying value
-#' fit <- lm( geneExpr[1,] ~ Tissue + Age, info)
-#' calcVarPart( fit )
-#' 
+#' fit <- lm(geneExpr[1, ] ~ Tissue + Age, info)
+#' calcVarPart(fit)
+#'
 #' @export
 #' @docType methods
 #' @rdname calcVarPart-method
-setGeneric("calcVarPart", signature="fit",
-  function(fit, adjust=NULL, adjustAll=FALSE, showWarnings=TRUE, ...)
-      standardGeneric("calcVarPart")
+setGeneric("calcVarPart",
+  signature = "fit",
+  function(fit, returnFractions = TRUE, ...) {
+    standardGeneric("calcVarPart")
+  }
 )
 
 
-# calcVarPart <- function( fit ){
-# 	if( is.null(fit) ){
-# 		stop("model fit is NULL.  There was an error fitting the regression model")
-# 	}
-# 	UseMethod("calcVarPart")
-# }
 
-
+# New version on March 30, 2021
 #' @export
 #' @rdname calcVarPart-method
 #' @aliases calcVarPart,lm-method
-setMethod("calcVarPart", "lm",
-function(fit, adjust=NULL, adjustAll=FALSE, showWarnings=TRUE, ...)
-{
+setMethod(
+  "calcVarPart", "lm",
+  function(fit, returnFractions = TRUE, ...) {
+    # check validity of model fit
+    checkModelStatus(fit, ...)
 
-	# check validity of model fit
-	checkModelStatus( fit, showWarnings,...)
+    # create design matrix
+    dsgn <- model.matrix(fit$terms, fit$model)
 
-	# Get ANOVA
-	a = anova(fit) 
+    # loop through all groupings of variables:
+    # continuous variables are 1 column,
+    # categorical variables depend on the number of levels
+    # i=0 indicates the intercept, but skip this
+    # since it doesn't constribute to variance
+    fxeff <- sapply(seq_len(max(fit$assign)), function(i) {
+      idx <- which(fit$assign == i)
+      dsgn[, idx, drop = FALSE] %*% fit$coefficients[idx]
+    })
+    colnames(fxeff) <- attr(fit$terms, "term.labels")
 
-	# get variables to remove from denominator
-	# also, check variables
-	adjust = getAdjustVariables( rownames(a), adjust, adjustAll)
+    # get weights
+    w <- weights(fit)
+    if (is.null(w)) {
+      w <- rep(1, nrow(fit$model))
+    }
 
-	# get Sum of Squares
-	if( is.null(adjust) ){
-		varFrac = a[['Sum Sq']] / sum( a[['Sum Sq']] )
-	}else{
+    # get sum of squares explained by each variable
+    SS <- apply(fxeff, 2, function(x) {
+      weighted.var(x, w) * (length(x) - 1)
+    },
+    simplify = FALSE
+    )
 
-		v = a[['Sum Sq']]
-		names(v) = rownames(a)
+    # Compute residual sum of squares
+    SS["Residuals"] <- sigma(fit)^2 * rdf(fit)
 
-		varFrac = c()
-		for( i in 1:(length(v)-1) ){
-			# total variance minus components to remove, but add back the current variable
-			varFrac[i] = v[i] / get_denom( v, adjust, i)
-		}
-		# Residual variance
-		varFrac[length(v)] = v[["Residuals"]] / sum(v)
+    SS <- unlist(SS)
 
-	}
+    if (returnFractions) {
+      # get variance fractions by dividing each SS by total sum of squares
+      res <- SS / sum(SS)
+    } else {
+      res <- SS / nrow(fit$model)
+    }
 
-	# set names 
-	names(varFrac) = rownames(a)
-
-	return( varFrac )
-}
+    res
+  }
 )
 
-get_denom = function( v, adjust, i){
 
-	currentSet = setdiff(adjust, names(v)[i])
 
-	if( length(currentSet) > 0){
-		denom = sum(v) - sum(sapply(currentSet, function(x) v[x]))
-	}else{
-		denom = sum(v)
-	}
-	return(denom)
+
+# from modi::weighted.var()
+#' @importFrom stats weighted.mean
+weighted.var <- function(x, w, na.rm = FALSE) {
+  if (missing(w)) {
+    w <- rep.int(1, length(x))
+  } else if (length(w) != length(x)) {
+    stop("x and w must have the same length")
+  }
+  if (min(w) < 0) {
+    stop("there are negative weights")
+  }
+  if (is.integer(w)) {
+    w <- as.numeric(w)
+  }
+  if (na.rm) {
+    w <- w[obs.ind <- !is.na(x)]
+    x <- x[obs.ind]
+  }
+  w <- w * length(w) / sum(w)
+  return(sum(w * (x - weighted.mean(x, w))^2) / (sum(w) - 1))
 }
 
-isMultipleVaryingCoefficientTerms = function( fit ){
-
-	# get variance components values
-	varComp = getVarianceComponents( fit )
-
-	# get varying coefficient terms
-	res = which(sapply(varComp, length) > 1)
-
-	# if there are more than 1
-	if( length(res) > 1){
-		warning(paste("Cannot have more than one varying coefficient term:", paste(names(res), collapse=", "), "\nThe results will not behave as expected and may be very wrong!!"))
-	}
-}
-
-
-isVaryingCoefficientModel = function( fit ){
-
-	# get variance components values
-	varComp = getVarianceComponents( fit )
-
-	# get varying coefficient terms
-	any(which(sapply(varComp, length) > 1))
-}
 
 #' @export
 #' @rdname calcVarPart-method
 #' @aliases calcVarPart,lmerMod-method
-setMethod("calcVarPart", "lmerMod",
-function(fit, adjust=NULL, adjustAll=FALSE, showWarnings=TRUE,...)
-{
-	# check validity of model fit
-	checkModelStatus( fit, showWarnings, ...)
+setMethod(
+  "calcVarPart", "lmerMod",
+  function(fit, returnFractions = TRUE, ...) {
+    # check validity of model fit
+    checkModelStatus(fit, ...)
 
-	# get variance components values
-	varComp = getVarianceComponents( fit )
+    # extract variance components
+    vc <- unlist(getVarianceComponents(fit))
 
-	# get variables to remove from denominator
-	# also, check variables
-	adjust = getAdjustVariables( names(varComp), adjust, adjustAll)
+    if (returnFractions) {
+      # create fractions
+      res <- vc / sum(vc)
+    } else {
+      res <- vc
+    }
 
-	if( max(sapply(varComp, length)) > 1 && !is.null(adjust) ){
-		stop("The adjust and adjustAll arguments are not currently supported for varying coefficient models")
-	}
+    # remove ".(Intercept)" string
+    names(res) <- gsub("\\.\\(Intercept\\)", "", names(res))
 
-	variableLevels = list()
-	for(key in colnames(fit@frame)){
-		key2 = paste(paste(key, levels(fit@frame[[key]]), sep=''), collapse=',')
-		variableLevels[[key2]] = key
-	}
-
- 	# Get variance terms for each variable
- 	# for standard terms, return the variance
- 	# for varying coefficient terms return weighted sum of variance
- 	# 	weighted by the sample sizes corresponding to the subsets of the data
-	get_total_variance = function(varComp){
-		sapply(varComp, function(x){
-		if( length(x) == 1){
-			return( x )
-		}else{			
-			key = variableLevels[[paste(names(x), collapse=',')]]
-
-			# get total variance from varying coefficient model
-			weights = (table(fit@frame[[key]]) / nrow(fit@frame))
-			x %*% weights / sum(weights)
-		}
-		})
-	}
-
-	varPart = c()
-
-	for( key in names(varComp) ){
-		for( i in 1:length(varComp[[key]]) ){
-
-			# get variance contributed by other variables
-			varOtherVariables = varComp[-which(names(varComp) == key)]
-
-			# remove this variance from the denominator
-			currentSet = setdiff(adjust, key)
-
-			if( length(currentSet) > 0 && key != "Residuals"){
-				adjustVariance = sum(sapply(currentSet, function(x) varComp[[x]]))
-			}else{
-				adjustVariance = 0
-			}
-
-			# demoninator: remove variables in this class (i.e. same key)
-			# from the variables in the current class, only consider 1 variable
-			totVar = tryCatch({
-			     get_total_variance(varOtherVariables)
-			}, error = function(e) {
-			    stop("Problem with varying coefficient model in formula: should have form (A+0|B)")
-			}, finally = {
-			})
-			denom = sum(totVar) + varComp[[key]][i] - adjustVariance
-
-			# compute fraction
-			frac = varComp[[key]][i] / denom 
-
-			# name variable based on two levels
-			if( is.null(names(varComp[[key]])[i]) || names(varComp[[key]])[i] %in% c("(Intercept)", '') ){
-				names(frac) = key
-			}else{
-				names(frac) = paste( names(varComp[[key]])[i], key, sep='/')
-			}
-
-			# save result
-			varPart = c(varPart, frac)
-		}
-	}
-
-	return( varPart )
-}
+    res
+  }
 )
 
 
-#' Extract variance terms
-#' 
-#' Extract variance terms from a model fit with lm() or lmer()
-#'
-#' @param fit list of lmer() model fits
-#'  
-#' @return 
-#'  variance explained by each variable
-# @details
-#' @examples
-#' # library(variancePartition)
-#'
-#' # optional step to run analysis in parallel on multicore machines
-#' # Here, we used 4 threads
-#' library(doParallel)
-#' cl <- makeCluster(4)
-#' registerDoParallel(cl)
-#' # or by using the doSNOW package
-#'
-#' # load simulated data:
-#' # geneExpr: matrix of gene expression values
-#' # info: information/metadata about each sample
-#' data(varPartData)
-#' 
-#' # Specify variables to consider
-#' # Age is continuous so we model it as a fixed effect
-#' # Individual and Tissue are both categorical, so we model them as random effects
-#' form <- ~ Age + (1|Individual) + (1|Tissue) 
-#' 
-#' # Fit model and extract variance in two separate steps
-#' # Step 1: fit model for each gene, store model fit for each gene in a list
-#' modelList <- fitVarPartModel( geneExpr, form, info )
-#' 
-#' fit <- modelList[[1]]
-#' getVarianceComponents( fit )
-#' 
-# # stop cluster
-# stopCluster(cl)
-#' 
 #' @export
-# getVarianceComponents = function( fit ){
-# 	# compute ICC, but don't divide by variances in the same class
-# 	varComp <- lapply(lme4::VarCorr(fit), function(fit) attr(fit, "stddev")^2)
+#' @rdname calcVarPart-method
+#' @aliases calcVarPart,glm-method
+setMethod(
+  "calcVarPart", "glm",
+  function(fit, returnFractions = TRUE, ...) {
+    checkModelStatus(fit, ...)
 
-# 	# order variables by name
-# 	# essential so that all models are ordered the same
-# 	varComp = varComp[order(names(varComp))]
-
-# 	# get residual variance
-# 	resid = attr(lme4::VarCorr(fit), 'sc')^2
-	
-# 	# computing remaining variance after random and residuals are considered
-# 	# fixed effects absorb the remaining variance
-# 	# if remaining variance is positive, 
-# 	# 	fixed effects variances are scaled to sum to the remianing varialce
-# 	# if remaining variance is negative
-# 	# 	fixed effects are set to zero
-# 	# GEH: Nov 16, 2016
-# 	rndVariables = unlist(varComp)
-# 	varRemaining = var( fit@resp$y ) - sum(unlist(rndVariables)) - resid
-
-# 	# variance of fixed effects, if they exist
-# 	# including fixed effects in the sum of variances makes a big difference, 
-# 	#	especially when the fixed effect makes a big contribution
-# 	# this approach minimized the difference between modelling
-# 	# 	as a fixed or random effect
-# 	# although, there is many be a substantial difference in estimates
-
-# 	idx = which(colnames(fit@pp$X) != "(Intercept)")
-# 	if( length(idx) > 0){
-
-# 		# get predicted fixed effects
-# 		fxeff = sapply( idx, function(i){
-# 			fit@pp$X[,i] * lme4::fixef(fit)[i]
-# 		})
-# 		colnames(fxeff) = colnames(fit@pp$X)[idx]
-
-# 		fixedVar = apply(fxeff, 2, var)
-
-# 	    # scale based on variance left to explain
-# 		# GEH: Nov 16, 2016
-# 		if( varRemaining > 0){
-# 	    	fixedVar = fixedVar / sum(fixedVar) * varRemaining
-# 	    }else{
-# 	    	fixedVar[] = 0
-# 	    }
-
-# 		for( i in 1:length(fixedVar) ){
-
-# 			key = names(fixedVar)[i]
-# 			varComp[[key]] = fixedVar[i]
-# 			names(varComp[[key]]) = ''
-# 		}
-# 	}
-
-# 	# include residual variance here
-# 	varComp$Residuals = resid
-# 	names(varComp$Residuals) = ''
-
-# 	return( varComp )
-# }
+    cvp_glm(fit, returnFractions = returnFractions, ...)
+  }
+)
 
 
-getVarianceComponents = function( fit ){
-	
-	varComp <- lapply(lme4::VarCorr(fit), function(fit) attr(fit, "stddev")^2)
+#' @export
+#' @rdname calcVarPart-method
+#' @aliases calcVarPart,negbin-method
+#' @importFrom aod negbin
+setMethod(
+  "calcVarPart", "negbin",
+  function(fit, returnFractions = TRUE, ...) {
+    checkModelStatus(fit, ...)
 
-	# order variables by name
-	# essential so that all models are ordered the same
-	varComp = varComp[order(names(varComp))]
+    cvp_glm(fit, returnFractions = returnFractions, ...)
+  }
+)
 
-	# extract predictor for each fixed effect
-	idx = which(colnames(fit@pp$X) != "(Intercept)")
+# Compute distribution variances for GLMs described Nakagawa, 2017
+#' @importFrom stats family
+getDistrVar <- function(fit) {
+  # Pass BiocCheck
+  link <- NA
 
-	# if there are fixed effects
-	if( length(idx) > 0){
+  # compute residual term for each link
+  famLink <- with(family(fit), paste(gsub("\\(.*", "", family), link))
 
-		# this part is now in 1.5.2
-		# better estimates of fixed effects
-		fxeff = sapply( idx, function(i){
-			fit@pp$X[,i] * lme4::fixef(fit)[i]
-		})
-		colnames(fxeff) = colnames(fit@pp$X)[idx]
+  distVar <- switch(famLink,
+    "binomial logit" = (pi^2) / 3,
+    "binomial probit" = 1,
+    "gaussian identity" = sigma(fit)^2 * rdf(fit),
+    "poisson log" = {
+      beta_0 <- coef(summary(fit))["(Intercept)", "Estimate"]
+      log(1 + 1 / exp(beta_0))
+    },
+    "Negative Binomial log" = {
+      beta_0 <- coef(summary(fit))["(Intercept)", "Estimate"]
 
-		# compute variance of each fixed effect
-		N = nrow(fxeff)
+      if (is(fit, "negbin")) theta <- fit$theta
+      if (is(fit, "glmerMod")) theta <- getME(fit, "glmer.nb.theta")
+      log(1 + 1 / exp(beta_0) + 1 / theta)
+    }
+  )
 
-		# variance of eahc term
-		fixedVar = apply(fxeff, 2, var) * (N-1) / N
-
-		# variance of sum of terms
-		varFixedTotal = var(rowSums(fxeff)) * (N-1) / N
-
-		# scale variance by the sum  and the total variance
-		for( key in names(fixedVar)){
-			varComp[[key]] = as.array(fixedVar[[key]] / sum(fixedVar) * varFixedTotal)
-		}
-	}
-
-	# get residuals
-	varComp$Residuals = attr(lme4::VarCorr(fit), 'sc')^2
-	names(varComp$Residuals) = ''
-	
-	return(varComp)
+  if (is.null(distVar)) {
+    stop("glm family/link not supported: ", famLink)
+  }
+  distVar
 }
 
-# Construct list of variable names to remove from the denominator
-getAdjustVariables = function( variables, adjust, adjustAll){
+# evaluate GLM's
+cvp_glm <- function(fit, returnFractions = TRUE, ...) {
+  # get weights
+  w <- weights(fit)
+  if (is.null(w)) {
+    w <- rep(1, nrow(fit$model))
+  }
 
-	if( adjustAll ){
-		adjust = variables
-	}
+  # Compute eta for each term
+  # predicted value in linear space for each term
+  Eta <- predict(fit, type = "terms")
 
-	# Check that variables in adjust array are present
-	idx = match(adjust, variables)
+  # residual variance based on link function
+  distVar <- getDistrVar(fit)
 
-	if( any(is.na(idx)) ){
-		stop(paste("The following variables cannot be used in the 'adjust' argument\nbecause they are not present in the model fit:", paste(adjust[which(is.na(idx))], collapse='; ')))
-	}
+  # variance on linear scale
+  # get variance of each term
+  # append with variance due to link function
+  var_term <- apply(Eta, 2, function(x) {
+    weighted.var(x, w) * (length(x) - 1)
+  })
+  var_term <- c(var_term, Residuals = distVar)
 
-		# remove Residuals from the adjust list
-	if( "Residuals" %in% adjust){
-		adjust = adjust[-match("Residuals", adjust)]
-	}
+  names(var_term) <- c(colnames(Eta), "Residuals")
 
-	return( adjust )
+  if (returnFractions) {
+    # compute fraction
+    res <- var_term / sum(var_term)
+  } else {
+    res <- var_term
+  }
+
+  res
+}
+
+
+
+#' @export
+#' @rdname calcVarPart-method
+#' @aliases calcVarPart,glmer-method
+setMethod(
+  "calcVarPart", "glmerMod",
+  function(fit, returnFractions = TRUE, ...) {
+    checkModelStatus(fit, ...)
+
+    cvp_glmm(fit, returnFractions = returnFractions, ...)
+  }
+)
+
+
+# evaluate GLMM's
+cvp_glmm <- function(fit, returnFractions = TRUE, ...) {
+  # Extract variance components
+  vc <- getVarianceComponents(fit)
+
+  # extract distribution-specific variance
+  vc$Residuals <- getDistrVar(fit)
+
+  vc <- unlist(vc)
+
+  # remove ".(Intercept)" string
+  names(vc) <- gsub("\\.\\(Intercept\\)", "", names(vc))
+
+  if (returnFractions) {
+    # create fractions
+    res <- vc / sum(vc)
+  } else {
+    res <- vc
+  }
+
+  res
+}
+
+
+
+#' @importFrom lme4 VarCorr fixef
+getVarianceComponents <- function(fit) {
+  # get weights
+  w <- weights(fit)
+  if (is.null(w)) {
+    w <- rep(1, nrow(fit$model))
+  }
+
+  # get random effects estimates
+  varComp <- lapply(lme4::VarCorr(fit), function(fit) attr(fit, "stddev")^2)
+
+  # order variables by name
+  # essential so that all models are ordered the same
+  varComp <- varComp[order(names(varComp))]
+
+  # extract predictor for each fixed effect
+  idx <- which(colnames(fit@pp$X) != "(Intercept)")
+
+  # if there are fixed effects
+  if (length(idx) > 0) {
+    # this part is now in 1.5.2
+    # better estimates of fixed effects
+    fxeff <- sapply(idx, function(i) {
+      fit@pp$X[, i] * lme4::fixef(fit)[i]
+    })
+    colnames(fxeff) <- colnames(fit@pp$X)[idx]
+
+    # compute variance of each fixed effect
+    # variance of each term
+    N <- nrow(fxeff)
+
+    fixedVar <- apply(fxeff, 2, function(x) {
+      weighted.var(x, w) * (N - 1) / N
+    })
+
+    varFixedTotal <- weighted.var(rowSums(fxeff), w) * (N - 1) / N
+
+    for (key in names(fixedVar)) {
+      varComp[[key]] <- as.array(fixedVar[[key]] / sum(fixedVar) *
+        varFixedTotal)
+    }
+  }
+
+  # get residuals
+  varComp$Residuals <- sigma(fit)^2
+
+  return(varComp)
 }

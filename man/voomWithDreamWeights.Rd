@@ -2,7 +2,7 @@
 % Please edit documentation in R/voomWithDreamWeights.R
 \name{voomWithDreamWeights}
 \alias{voomWithDreamWeights}
-\title{Transform RNA-Seq Data Ready for Linear Mixed Modelling with dream()}
+\title{Transform RNA-Seq Data Ready for Linear Mixed Modelling with \code{dream()}}
 \usage{
 voomWithDreamWeights(
   counts,
@@ -11,44 +11,59 @@ voomWithDreamWeights(
   lib.size = NULL,
   normalize.method = "none",
   span = 0.5,
+  weights = NULL,
+  prior.count = 0.5,
+  prior.count.for.weights = prior.count,
   plot = FALSE,
-  save.plot = FALSE,
-  quiet = FALSE,
-  BPPARAM = bpparam(),
+  save.plot = TRUE,
+  rescaleWeightsAfter = FALSE,
+  scaledByLib = FALSE,
+  priorWeightsAsCounts = FALSE,
+  BPPARAM = SerialParam(),
   ...
 )
 }
 \arguments{
-\item{counts}{a numeric 'matrix' containing raw counts, or an 'ExpressionSet' containing raw counts, or a 'DGEList' object. Counts must be non-negative and NAs are not permitted.}
+\item{counts}{a numeric \code{matrix} containing raw counts, or an \code{ExpressionSet} containing raw counts, or a \code{DGEList} object. Counts must be non-negative and NAs are not permitted.}
 
-\item{formula}{specifies variables for the linear (mixed) model.  Must only specify covariates, since the rows of exprObj are automatically used a a response. e.g.: ~ a + b + (1|c)  Formulas with only fixed effects also work, and lmFit() followed by contrasts.fit() are run.}
+\item{formula}{specifies variables for the linear (mixed) model.  Must only specify covariates, since the rows of exprObj are automatically used as a response. e.g.: \code{~ a + b + (1|c)}  Formulas with only fixed effects also work, and \code{lmFit()} followed by contrasts.fit() are run.}
 
-\item{data}{data.frame with columns corresponding to formula}
+\item{data}{\code{data.frame} with columns corresponding to formula}
 
-\item{lib.size}{numeric vector containing total library sizes for each sample.  Defaults to the normalized (effective) library sizes in 'counts' if 'counts' is a 'DGEList' or to the columnwise count totals if 'counts' is a matrix.}
+\item{lib.size}{numeric vector containing total library sizes for each sample.  Defaults to the normalized (effective) library sizes in \code{counts} if \code{counts} is a \code{DGEList} or to the columnwise count totals if \code{counts} is a matrix.}
 
-\item{normalize.method}{the microarray-style normalization method to be applied to the logCPM values (if any).  Choices are as for the 'method' argument of 'normalizeBetweenArrays' when the data is single-channel.  Any normalization factors found in 'counts' will still be used even if 'normalize.method'="none".}
+\item{normalize.method}{the microarray-style normalization method to be applied to the logCPM values (if any).  Choices are as for the \code{method} argument of \code{normalizeBetweenArrays} when the data is single-channel.  Any normalization factors found in \code{counts} will still be used even if \code{normalize.method="none"}.}
 
-\item{span}{width of the lowess smoothing window as a proportion.}
+\item{span}{width of the lowess smoothing window as a proportion. Setting \code{span="auto"} uses \code{fANCOVA::loess.as()} to estimate the tuning parameter from the data}
+
+\item{weights}{Can be a numeric matrix of individual weights of same dimensions as the \code{counts}, or a numeric vector of sample weights with length equal to \code{ncol(counts)}}
+
+\item{prior.count}{average count to be added to each observation to avoid taking log of zero. The count applied to each sample is normalized by library size so given equal log CPM for a gene with zero counts across multiple samples}
+
+\item{prior.count.for.weights}{count added to regularize weights}
 
 \item{plot}{logical, should a plot of the mean-variance trend be displayed?}
 
 \item{save.plot}{logical, should the coordinates and line of the plot be saved in the output?}
 
-\item{quiet}{suppress message, default FALSE}
+\item{rescaleWeightsAfter}{default = FALSE, should the output weights be scaled by the input weights}
+
+\item{scaledByLib}{if \code{TRUE}, scale pseudocount by \code{lib.size}.  Else to standard constant pseudocount addition}
+
+\item{priorWeightsAsCounts}{if \code{weights} is \code{NULL}, set weights to be equal to counts, following delta method for log2 CPM}
 
 \item{BPPARAM}{parameters for parallel evaluation}
 
-\item{...}{other arguments are passed to 'lmer'.}
+\item{...}{other arguments are passed to \code{lmer}.}
 }
 \value{
-An 'EList' object just like the result of limma::voom()
+An \code{EList} object just like the result of \code{limma::voom()}
 }
 \description{
-Transform count data to log2-counts per million (logCPM), estimate the mean-variance relationship and use this to compute appropriate observation-level weights. The data are then ready for linear mixed modelling with dream().   This method is the same as limma::voom(), except that it allows random effects in the formula
+Transform count data to log2-counts per million (logCPM), estimate the mean-variance relationship and use this to compute appropriate observation-level weights. The data are then ready for linear mixed modelling with \code{dream()}.   This method is the same as \code{limma::voom()}, except that it allows random effects in the formula
 }
 \details{
-Adapted from vomm() in limma v3.40.2
+Adapted from \code{voom()} in \code{limma} v3.40.2
 }
 \examples{
 # library(variancePartition)
@@ -58,23 +73,23 @@ library(BiocParallel)
 data(varPartDEdata)
 
 # normalize RNA-seq counts
-dge = DGEList(counts = countMatrix)
-dge = calcNormFactors(dge)
+dge <- DGEList(counts = countMatrix)
+dge <- calcNormFactors(dge)
 
 # specify formula with random effect for Individual
-form <- ~ Disease + (1|Individual) 
+form <- ~ Disease + (1 | Individual)
 
 # compute observation weights
-vobj = voomWithDreamWeights( dge[1:20,], form, metadata)
+vobj <- voomWithDreamWeights(dge[1:20, ], form, metadata)
 
-# fit dream model 
-res = dream( vobj, form, metadata)
+# fit dream model
+res <- dream(vobj, form, metadata)
+res <- eBayes(res)
 
 # extract results
-topTable(res, coef="Disease1")
-
+topTable(res, coef = "Disease1", number = 3)
 
 }
 \seealso{
-limma::voom()
+\code{limma::voom()}
 }

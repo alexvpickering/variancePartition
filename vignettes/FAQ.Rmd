@@ -1,0 +1,65 @@
+---
+title: "Frequently asked questions"
+author: "Developed by [Gabriel Hoffman](http://gabrielhoffman.github.io/)"
+date: "Run on `r format(Sys.time())`"
+output:
+  rmarkdown::html_document:
+    highlight: pygments
+    toc: true
+    toc_depth: 3
+    fig_width: 5
+bibliography: library.bib
+vignette: >
+  %\VignetteIndexEntry{6) Frequently asked questions}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+  %\usepackage[utf8]{inputenc}
+---
+
+<!---
+cd /Users/gabrielhoffman/workspace/repos
+R
+library('knitr')
+rmarkdown::render('variancePartition/vignettes/FAQ.Rmd')
+
+
+rmarkdown::render('FAQ.Rmd')
+
+--->
+
+```{r setup, echo=FALSE, results="hide"}
+knitr::opts_chunk$set(
+  tidy = FALSE, cache = TRUE,
+  dev = "png",
+  package.startup.message = FALSE,
+  message = FALSE, error = FALSE, warning = TRUE
+)
+options(width = 100)
+```	
+
+
+<style>
+body {
+text-align: justify}
+</style>
+
+# Interperting the residual variance
+In general, I recommend against interpreting the fraction of variance explained by residuals.  This fraction is driven by: 
+
+1. the particulars of the study design
+2. measurement precision (i.e. high read counts give more precise measurements)
+3. biological variability
+4. technical variability (i.e. batch effects).   
+
+If you have additional  variables that explain variation in measured gene expression, you should include them in order to avoid confounding with your variable of interest.  But a particular residual fraction is not ‘good’ or ‘bad’ and is not a good metric of determining whether more variables should be included.
+
+# Current GitHub issues
+See [GitHub page](https://github.com/DiseaseNeuroGenomics/variancePartition/issues) for up-to-date responses to users' questions.
+
+# Session Info
+<details>
+```{r session, echo=FALSE}
+sessionInfo()
+```
+</details>
+

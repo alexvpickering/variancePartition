@@ -49,7 +49,7 @@ plotVarPart(
 )
 }
 \arguments{
-\item{obj}{varParFrac object returned by fitExtractVarPart or extractVarPart}
+\item{obj}{\code{varParFrac} object returned by \code{fitExtractVarPart} or \code{extractVarPart}}
 
 \item{col}{vector of colors}
 
@@ -74,12 +74,7 @@ Violin plot of variance fraction for each gene and each variable
 # load library
 # library(variancePartition)
 
-# optional step to run analysis in parallel on multicore machines
-# Here, we used 4 threads
-library(doParallel)
-cl <- makeCluster(4)
-registerDoParallel(cl)
-# or by using the doSNOW package
+library(BiocParallel)
 
 # load simulated data:
 # geneExpr: matrix of gene expression values
@@ -89,12 +84,11 @@ data(varPartData)
 # Specify variables to consider
 # Age is continuous so we model it as a fixed effect
 # Individual and Tissue are both categorical, so we model them as random effects
-form <- ~ Age + (1|Individual) + (1|Tissue) 
+form <- ~ Age + (1 | Individual) + (1 | Tissue)
 
-varPart <- fitExtractVarPartModel( geneExpr, form, info )
- 
+varPart <- fitExtractVarPartModel(geneExpr, form, info)
+
 # violin plot of contribution of each variable to total variance
-plotVarPart( sortCols( varPart ) )
-
+plotVarPart(sortCols(varPart))
 
 }

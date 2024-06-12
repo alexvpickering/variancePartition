@@ -1,0 +1,42 @@
+
+url: http://DiseaseNeurogenomics.github.io/variancePartition
+
+authors:
+  "Gabriel Hoffman":
+    href: http://gabrielhoffman.github.io
+
+template:
+  bootstrap: 5
+  bootswatch: flatly
+
+search:
+  exclude: ['news/index.html']
+
+articles:
+- title: dream
+  navbar: ~
+  contents: dream
+
+- title: rnd_effects
+  navbar: ~
+  contents: rnd_effects
+
+- title: mvtests
+  navbar: ~
+  contents: mvtests
+
+- title: additional_visualization
+  navbar: ~
+  contents: additional_visualization
+
+- title: errors
+  navbar: ~
+  contents: errors
+
+- title: FAQ
+  navbar: ~
+  contents: FAQ
+
+  
+
+
